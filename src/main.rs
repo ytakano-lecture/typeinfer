@@ -2,8 +2,8 @@ mod parser;
 mod typing;
 
 fn main() {
-    let s = "if x { 100 } else { 200 }";
-    let s = "if (iszero x) { 10 } else { 20 }";
+    let s = "(fun x { if x { 100 } else { 200 } } true)";
+//    let s = "if (iszero x) { 10 } else { 20 }";
 //    let s = "(a 10)";
 
     match parser::parse_expr(s) {
