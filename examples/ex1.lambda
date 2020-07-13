@@ -1,0 +1,7 @@
+(fun x {
+    if x {
+        100
+    } else {
+        200
+    }
+} true)

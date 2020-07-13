@@ -1,33 +1,41 @@
-use crate::parser::{Expr, If, Fun};
-use std::collections::{LinkedList, HashMap};
+use crate::parser::{Expr, Fun, If};
+use std::collections::{HashMap, LinkedList};
 
+// 型制約
 pub type Constraint = LinkedList<(Type, Type)>;
-pub type Context    = HashMap<String, Type>;
 
-struct Subst(HashMap<u64, Type>);
+// 型環境
+pub type Context = HashMap<String, Type>;
+
+// 代入
+pub type Subst = HashMap<u64, Type>;
 
 #[derive(Debug)]
 pub struct State {
     pub cnstr: Constraint,
     pub ctx: Context,
-    pub tv: u64
+    pub tv: u64,
 }
 
-#[derive(Debug, Clone)]
+// 型の表現
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Fun(Box::<Type>, Box::<Type>),
-    Bool,
-    Int,
-    TVar(u64)
+    Fun(Box<Type>, Box<Type>), // 関数の型
+    Bool,                      // 真偽値型
+    Int,                       // 整数型
+    TVar(u64),                 // 型変数
 }
 
 impl State {
     fn new() -> State {
-        State{cnstr: Constraint::new(),
-              ctx: Context::new(),
-              tv: 0}
+        State {
+            cnstr: Constraint::new(),
+            ctx: Context::new(),
+            tv: 0,
+        }
     }
 
+    // 新しい型変数を取得する関数
     fn get_tv(&mut self) -> Type {
         let tv = self.tv;
         self.tv += 1;
@@ -35,61 +43,76 @@ impl State {
     }
 }
 
-impl Subst {
-    fn new() -> Subst {
-        Subst(HashMap::new())
-    }
-
-    fn apply_type(&self, t: &Type) -> Type {
-        match t {
-            Type::Bool => Type::Bool,
-            Type::Int  => Type::Int,
-            Type::Fun(e1, e2) => {
-                let t1 = self.apply_type(e1);
-                let t2 = self.apply_type(e2);
-                Type::Fun(Box::new(t1), Box::new(t2))
-            }
-            Type::TVar(tv) => {
-                match self.0.get(tv) {
-                    Some(ty) => ty.clone(),
-                    None => t.clone()
-                }
-            }
+// 代入を型に適用する関数
+fn apply_type(s: &Subst, t: &Type) -> Type {
+    match t {
+        Type::Bool => Type::Bool,
+        Type::Int => Type::Int,
+        Type::Fun(e1, e2) => {
+            let t1 = apply_type(s, e1);
+            let t2 = apply_type(s, e2);
+            Type::Fun(Box::new(t1), Box::new(t2))
         }
-    }
-
-    fn apply_constraint(&self, c: &Constraint) -> Constraint {
-        let mut result = Constraint::new();
-        for (t1, t2) in c {
-            let t1 = self.apply_type(t1);
-            let t2 = self.apply_type(t2);
-            result.push_back((t1, t2));
-        }
-        result
+        Type::TVar(tv) => match s.get(tv) {
+            Some(ty) => ty.clone(),
+            None => t.clone(),
+        },
     }
 }
 
-pub fn infer(e: &Expr) -> State {
+// 代入を型制約に適用する関数
+fn apply_constraint(s: &Subst, c: &Constraint) -> Constraint {
+    let mut result = Constraint::new();
+    for (t1, t2) in c {
+        let t1 = apply_type(s, t1);
+        let t2 = apply_type(s, t2);
+        result.push_back((t1, t2));
+    }
+    result
+}
+
+impl Type {
+    // 型中にtvと同じ型変数がある場合true
+    fn has_tv(&self, tv: u64) -> bool {
+        match self {
+            Type::Fun(t1, t2) => t1.has_tv(tv) || t2.has_tv(tv),
+            Type::Bool => false,
+            Type::Int => false,
+            Type::TVar(x) => tv == *x,
+        }
+    }
+}
+
+// 型推論を行う関数
+pub fn infer(e: &Expr) -> (Context, Constraint, Option<Subst>) {
     let mut s = State::new();
+
+    // まず、typing_exprで型制約を求める
     typing_expr(e, &mut s);
-    s
+    let c = s.cnstr.clone();
+
+    // 次に、得られた型制約から、unify関数で単一化を行う
+    // unify関数の結果とコンテキストが型推論の結果となる
+    (s.ctx, c, unify(s.cnstr))
 }
 
+// 型付けを行いつつ、型制約を求める関数
 fn typing_expr(e: &Expr, s: &mut State) -> Type {
     match e {
-        Expr::Int(_)      => Type::Int,
-        Expr::Bool(_)     => Type::Bool,
-        Expr::If(e)       => typing_if(e, s),
-        Expr::Id(e)       => typing_id(e, s),
-        Expr::App(e1, e2) => typing_app(e1, e2, s),
-        Expr::Fun(e)      => typing_fun(e, s),
+        Expr::Int(_) => Type::Int,                  // 整数値リテラル
+        Expr::Bool(_) => Type::Bool,                // 真偽値リテラル
+        Expr::If(e) => typing_if(e, s),             // if式
+        Expr::Id(e) => typing_id(e, s),             // 変数
+        Expr::App(e1, e2) => typing_app(e1, e2, s), // 関数適用
+        Expr::Fun(e) => typing_fun(e, s),           // 関数定義
     }
 }
 
+// if式の型付けを行う関数
 fn typing_if(e: &If, s: &mut State) -> Type {
     let ty_cond = typing_expr(&e.cond, s);
     let ty_then = typing_expr(&e.then, s);
-    let ty_els  = typing_expr(&e.els, s);
+    let ty_els = typing_expr(&e.els, s);
 
     s.cnstr.push_back((ty_cond, Type::Bool));
     s.cnstr.push_back((ty_then, ty_els.clone()));
@@ -97,36 +120,26 @@ fn typing_if(e: &If, s: &mut State) -> Type {
     ty_els
 }
 
+// 変数の型付けを行う関数
 fn typing_id(e: &String, s: &mut State) -> Type {
     match e.as_str() {
-        "true"   => Type::Bool,
-        "false"  => Type::Bool,
-        "succ"   => Type::Fun(Box::new(Type::Int), Box::new(Type::Int)),
-        "pred"   => Type::Fun(Box::new(Type::Int), Box::new(Type::Int)),
+        "true" => Type::Bool,
+        "false" => Type::Bool,
+        "succ" => Type::Fun(Box::new(Type::Int), Box::new(Type::Int)),
+        "pred" => Type::Fun(Box::new(Type::Int), Box::new(Type::Int)),
         "iszero" => Type::Fun(Box::new(Type::Int), Box::new(Type::Bool)),
-        id => {
-            match s.ctx.get(id) {
-                Some(t) => t.clone(),
-                None => {
-                    let tv = s.get_tv();
-                    s.ctx.insert(id.to_string(), tv.clone());
-                    tv
-                }
+        id => match s.ctx.get(id) {
+            Some(t) => t.clone(),
+            None => {
+                let tv = s.get_tv();
+                s.ctx.insert(id.to_string(), tv.clone());
+                tv
             }
-        }
+        },
     }
 }
 
-fn typing_app(e1: &Expr, e2: &Expr, s: &mut State) -> Type {
-    let t2 = typing_expr(e2, s);
-    let t1 = typing_expr(e1, s);
-    let tv = s.get_tv();
-
-    s.cnstr.push_back((t1, Type::Fun(Box::new(t2), Box::new(tv.clone()))));
-
-    tv
-}
-
+// 関数定義の型付けを行う関数
 fn typing_fun(e: &Fun, s: &mut State) -> Type {
     let targ = s.get_tv();
     s.ctx.insert(e.arg.clone(), targ.clone());
@@ -136,22 +149,50 @@ fn typing_fun(e: &Fun, s: &mut State) -> Type {
     Type::Fun(Box::new(targ), Box::new(texp))
 }
 
+// 関数適用の型付けを行う関数
+fn typing_app(e1: &Expr, e2: &Expr, s: &mut State) -> Type {
+    // ここを実装せよ
+
+    Type::Bool // コンパイルを通すためのダミーなので実装する際はこの行は削除すること
+}
+
+// 代入の合成を行う関数
 fn compose(s1: &Subst, s2: &Subst) -> Subst {
     let mut s = Subst::new();
 
-    for (key, val) in &s2.0 {
-        let t = s1.apply_type(val);
-        s.0.insert(*key, t);
+    // ここを実装せよ
+
+    s
+}
+
+// 単一化を行う関数
+fn unify(mut c: Constraint) -> Option<Subst> {
+    if c.is_empty() {
+        return Some(Subst::new());
     }
 
-    for (key, val) in &s1.0 {
-        match s2.0.get(key) {
-            Some(_) => (),
-            None => {
-                s.0.insert(*key, val.clone());
+    // 型制約中の先頭の制約を取り出す
+    let pair = c.pop_front().unwrap();
+    if pair.0 == pair.1 {
+        return unify(c);
+    }
+
+    match pair {
+        (Type::TVar(tv), _) => {
+            if !pair.1.has_tv(tv) {
+                let mut s2 = Subst::new();
+                s2.insert(tv, pair.1);
+                let c = apply_constraint(&s2, &c);
+                let s1 = unify(c)?;
+                return Some(compose(&s1, &s2));
             }
+        }
+
+        // ここを実装せよ
+        _ => {
+            return None;
         }
     }
 
-    s
+    return None;
 }
