@@ -28,7 +28,7 @@ fn main() {
             println!("型環境: {:?}", s.0);
             println!("型制約: {:?}", s.1);
             match s.2 {
-                Some(sbst) => println!("代入:   {:?}", sbst),
+                Some(sbst) => println!("置換:   {:?}", sbst),
                 None => println!("型推論に失敗しました"),
             }
         }

@@ -7,7 +7,7 @@ pub type Constraint = LinkedList<(Type, Type)>;
 // 型環境
 pub type Context = HashMap<String, Type>;
 
-// 代入
+// 置換
 pub type Subst = HashMap<u64, Type>;
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl State {
     }
 }
 
-// 代入を型に適用する関数
+// 置換を型に適用する関数
 fn apply_type(s: &Subst, t: &Type) -> Type {
     match t {
         Type::Bool => Type::Bool,
@@ -60,7 +60,7 @@ fn apply_type(s: &Subst, t: &Type) -> Type {
     }
 }
 
-// 代入を型制約に適用する関数
+// 置換を型制約に適用する関数
 fn apply_constraint(s: &Subst, c: &Constraint) -> Constraint {
     let mut result = Constraint::new();
     for (t1, t2) in c {
@@ -156,7 +156,7 @@ fn typing_app(e1: &Expr, e2: &Expr, s: &mut State) -> Type {
     Type::Bool // コンパイルを通すためのダミーなので実装する際はこの行は削除すること
 }
 
-// 代入の合成を行う関数
+// 置換の合成を行う関数
 fn compose(s1: &Subst, s2: &Subst) -> Subst {
     let mut s = Subst::new();
 
